@@ -20,10 +20,14 @@ typedef enum {
     BOSS        // New: Boss room at the end
 } RoomType;
 
+// Array of monster names
+char * MONSTER_TYPES[] = {"Troll", "Chimera", "Hydra", "Arachnid"};
+
 typedef enum {
     WEAPON,
     ARMOR,
-    POTION
+    POTION,
+    BAG
 } ItemType;
 
 // Structures
@@ -33,7 +37,7 @@ typedef struct Item {
     int value;
     int cost;
     struct Item* next;
-} Item;
+} Item; // Inventory
 
 typedef struct Room {
     RoomType type;
@@ -54,6 +58,7 @@ typedef struct {
     int level;
     int experience;
     Item* inventory;  // Linked list of items
+    int max_inventory;
     int weapon_bonus;
     int armor_bonus;
 } Player;
@@ -160,6 +165,7 @@ void initializePlayer(Player* player) {
     printf("1. Warrior of Aisha (High strength, resilient)\n");
     printf("2. Rogue of Ella (Balanced and agile)\n");
     printf("3. Guardian of Aishella (High health, protective)\n");
+    printf("4. Realm Socerer (High expereince, Wisdom) ");
     printf("Choose: ");
     
     int classChoice;
@@ -170,20 +176,30 @@ void initializePlayer(Player* player) {
             printf("\nYou are a Warrior of Aisha - strong and unyielding!\n");
             player->strength = 30;
             player->health = 70;
+            player->max_inventory = 5;
             break;
         case 2: // Rogue of Ella
             printf("\nYou are a Rogue of Ella - agile and resourceful!\n");
             player->strength = 25;
             player->health = 80;
+            player->max_inventory = 7;
             break;
         case 3: // Guardian of Aishella
             printf("\nYou are a Guardian of Aishella - protective and enduring!\n");
             player->strength = 20;
             player->health = 100;
+            player->max_inventory = 6;
+            break;
+        case 4: // Realm Sorcerer
+            printf("\nYou are a Realm Sorcerer - wise and powerful!\n");
+            player->strength = 40;
+            player->health = 60;
+            player->max_inventory = 7;
             break;
         default:
             player->strength = 25;
             player->health = 85;
+            player->max_inventory = 6;
     }
     
     player->max_strength = player->strength;
@@ -212,6 +228,20 @@ void initializePlayer(Player* player) {
     potion->cost = 0;
     potion->next = NULL;
     sword->next = potion;
+
+    // Player class attributes/bonuses
+    if (classChoice == 4) {
+        player->experience += 5; // Sorcerer starts with extra experience to represent wisdom
+    }
+    if (classChoice == 3) {
+        player->armor_bonus += 2; // Guardian starts with extra armor bonus to represent strength
+    }
+    if (classChoice == 2) {
+        player->coins += 10; // Rogue starts with extra coins to represent resourcefulness
+    }
+    if (classChoice == 1) {
+        player->weapon_bonus += 2; // Warrior starts with extra weapon bonus to represent strength
+    }
     
     printf("\nYou begin your journey with 100 gold coins.\n");
     printf("Your equipment: Rusty Sword of Aishella and Healing Elixir\n");
@@ -246,14 +276,27 @@ Item* createRandomItem(int roomIndex) {
         item->type = POTION;
         item->value = 20 + roomIndex * 2;
         item->cost = 30 + roomIndex * 3;
-    } else if (rarity < 80) { // Uncommon
+    }
+    else if (rarity < 60) { // Common
+        strcpy(item->name, "Burlap Bag"); // increases max_inventory
+        item->type = BAG;
+        item->value = 3; // increases inventory size by 2 (the bag itself takes up an inventory slot)
+        item->cost = 10 + roomIndex * 2;
+    }
+    else if (rarity < 70) { // Uncommon
         char weaponName[30];
         sprintf(weaponName, "%s %s", prefixes[rand() % 5], weaponNames[rand() % 5]);
         strcpy(item->name, weaponName);
         item->type = WEAPON;
         item->value = 10 + roomIndex * 3;
         item->cost = 50 + roomIndex * 5;
-    } else { // Rare
+    } else if (rarity < 80) { // Uncommon
+        strcpy(item->name, "Poison Vial");
+        item->type = POTION;
+        item->value = -20 - roomIndex * 3; // negative value indicates damage
+        item->cost = 50 + roomIndex * 5;
+    } 
+    else { // Rare
         char armorName[30];
         sprintf(armorName, "%s %s", prefixes[rand() % 5], armorNames[rand() % 5]);
         strcpy(item->name, armorName);
@@ -349,7 +392,7 @@ void displayRoom(const Room* room, int roomIndex) {
     
     switch(room->type) {
         case MONSTER:
-            printf("| A DREADFUL CREATURE BLOCKS YOUR PATH!   |\n");
+            printf("| A %s BLOCKS YOUR PATH!   |\n", MONSTER_TYPES[rand() % 4]);
             printf("| Creature Strength: %-3d                  |\n", room->value);
             break;
         case TREASURE:
@@ -412,12 +455,20 @@ void showInventory(Player* player) {
 }
 
 void addItemToInventory(Player* player, Item* item) {
+    int count = 0;
     if (player->inventory == NULL) {
         player->inventory = item;
-    } else {
+    }
+    else {
         Item* current = player->inventory;
         while (current->next != NULL) {
+            if (count == (player->max_inventory - 1)) {
+                printf("Your inventory is full! Cannot add %s.\n", item->name);
+                free(item);
+                return;
+            }
             current = current->next;
+            count++;
         }
         current->next = item;
     }
@@ -443,15 +494,22 @@ void usePotion(Player* player) {
         printf("You have no healing potions!\n");
         return;
     }
-    
-    int healAmount = potion->value;
-    player->health += healAmount;
-    if (player->health > player->max_health) {
-        player->health = player->max_health;
-    }
-    
-    printf("You drink the %s and restore %d health!\n", potion->name, healAmount);
-    
+    if (potion->value < 0) {
+        printf("You accidentally drink a poison vial! You take %d damage!\n", potion->value);
+        player->health += potion->value; // potion->value is negative
+        if (player->health <= 0) {
+            printf("The poison was fatal!\n");
+        }
+    } 
+    else {
+        int healAmount = potion->value;
+        player->health += healAmount;
+        if (player->health > player->max_health) {
+            player->health = player->max_health;
+        }
+        
+        printf("You drink the %s and restore %d health!\n", potion->name, healAmount);
+    }  
     // Remove potion from inventory
     if (prev == NULL) {
         player->inventory = potion->next;
@@ -486,6 +544,9 @@ void visitMerchant(Player* player, int roomIndex) {
                 case POTION: 
                     printf(" (Heals %d HP)\n", items[i]->value);
                     break;
+                case BAG:
+                    printf(" (Increases max inventory by %d)\n", items[i]->value);
+                    break;
             }
         }
         printf("4. Trade your items\n");
@@ -517,9 +578,15 @@ void visitMerchant(Player* player, int roomIndex) {
             } else {
                 printf("The merchant shakes his head. \"Not enough gold, traveler.\"\n");
             }
-        } else if (choice == 4) {
-            printf("You trade some old gear for 50 gold.\n");
-            player->coins += 50;
+        } else if (choice == 4) {            
+            printf("Would you like to trade %s for %d gold? y/n.\n", player->inventory->name, player->inventory->cost);
+            if (getchar() == 'y' || getchar() == 'Y') {
+                player->coins += player->inventory->cost;
+                free(player->inventory); // sell the first item in inventory
+            }
+            else {
+                printf("Trade cancelled.\n");
+            }
         }
     } while (choice != 5);
     
